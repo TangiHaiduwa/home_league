@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { useRef, useState } from "react";
 
@@ -44,10 +45,21 @@ export function SiteHeader() {
           <span className="text-lg leading-none">{menuOpen ? "x" : "|||"}</span>
         </button>
         <div className="fade-up min-w-0 flex-1 md:flex-none md:pl-0">
-          <Link className="brand-display text-3xl leading-none text-[var(--hl-red)] md:text-4xl" href="/">
-            UNAM Home League
+          <Link className="flex items-center gap-3" href="/">
+            <Image
+              src="/league-logo.png"
+              alt="UNAM Home League logo"
+              width={44}
+              height={44}
+              className="h-11 w-11 rounded-full border border-[var(--hl-red)]/20 bg-white object-cover"
+            />
+            <span>
+              <span className="brand-display block text-3xl leading-none text-[var(--hl-red)] md:text-4xl">
+                UNAM Home League
+              </span>
+              <span className="block text-xs uppercase tracking-[0.25em] text-[var(--hl-muted)]">Home League</span>
+            </span>
           </Link>
-          <p className="text-xs uppercase tracking-[0.25em] text-[var(--hl-muted)]">Home League</p>
         </div>
         <ul className="fade-up delay-1 hidden gap-7 text-sm font-semibold text-[var(--hl-ink)] md:flex">
           {navItems.map((item) => (
@@ -56,12 +68,6 @@ export function SiteHeader() {
             </li>
           ))}
         </ul>
-        <Link
-          className="fade-up delay-2 hidden rounded-full bg-[var(--hl-red)] px-4 py-2 text-sm font-bold text-white transition hover:bg-[var(--hl-red-dark)] md:inline-block"
-          href="/fixtures"
-        >
-          Match Center
-        </Link>
       </nav>
       {menuOpen ? (
         <div className="relative z-20 mx-5 mb-4 rounded-2xl border border-[var(--hl-red)]/20 bg-white/95 p-4 shadow-[0_14px_40px_rgba(120,11,24,0.18)] md:hidden">
@@ -74,13 +80,6 @@ export function SiteHeader() {
               </li>
             ))}
           </ul>
-          <Link
-            className="mt-3 block rounded-full bg-[var(--hl-red)] px-4 py-2 text-center text-sm font-bold text-white transition hover:bg-[var(--hl-red-dark)]"
-            href="/fixtures"
-            onClick={() => setMenuOpen(false)}
-          >
-            Match Center
-          </Link>
         </div>
       ) : null}
     </header>

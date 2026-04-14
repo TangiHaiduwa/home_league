@@ -1,15 +1,23 @@
-import {
+﻿import {
+  addAdminUser,
   addAwayGoal,
   addHomeGoal,
   addMinute,
   createFixture,
-  createPlayer,
   createNewsPost,
+  createPlayer,
   createTeam,
+  deleteMatch,
+  deleteNewsPost,
+  deletePlayer,
+  deleteTeam,
   finishMatch,
   logoutAdmin,
   startLiveMatch,
+  updateAdminUserRole,
   updateMatchResult,
+  updateNewsPost,
+  removeAdminUser,
 } from "@/app/admin/actions";
 import { createSupabaseServerClient } from "@/lib/supabase/server-auth";
 import Link from "next/link";
@@ -18,6 +26,12 @@ import { redirect } from "next/navigation";
 type AdminPageProps = {
   searchParams: Promise<{ error?: string; success?: string; section?: string }>;
 };
+
+const roleOptions = [
+  { value: "super_admin", label: "Super Admin" },
+  { value: "match_official", label: "Match Official" },
+  { value: "media_officer", label: "Media Officer" },
+];
 
 export default async function AdminPage({ searchParams }: AdminPageProps) {
   const { error, success, section } = await searchParams;
@@ -40,16 +54,16 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
   const { data: matches } = await supabase
     .from("matches")
     .select(
-      "id, match_date, status, home_score, away_score, live_minute, home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name)",
+      "id, match_date, status, home_score, away_score, live_minute, venue, home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name)",
     )
     .order("match_date", { ascending: true })
-    .limit(30);
+    .limit(50);
 
   const { data: latestNews } = await supabase
     .from("news")
-    .select("id, title, created_at")
+    .select("id, title, snippet, created_at")
     .order("created_at", { ascending: false })
-    .limit(8);
+    .limit(20);
 
   const { data: teams } = await supabase
     .from("teams")
@@ -59,9 +73,21 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
 
   const { data: latestPlayers } = await supabase
     .from("players")
-    .select("id, full_name, team:teams!players_team_id_fkey(name)")
+    .select("id, full_name, shirt_number, position, created_at, team:teams!players_team_id_fkey(name)")
     .order("created_at", { ascending: false })
-    .limit(8);
+    .limit(20);
+
+  const { data: adminUsers, error: adminUsersError } = await supabase
+    .from("admin_users")
+    .select("user_id, role, created_at")
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  const { data: activityLogs, error: activityError } = await supabase
+    .from("admin_activity_logs")
+    .select("id, actor_user_id, action_type, entity_type, entity_id, created_at")
+    .order("created_at", { ascending: false })
+    .limit(25);
 
   const getTeamName = (
     teamRelation: { name?: string } | { name?: string }[] | null | undefined,
@@ -83,7 +109,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
       <header className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="brand-display text-5xl text-[var(--hl-red)] md:text-6xl">Admin Console</h1>
-          <p className="mt-1 text-sm text-[var(--hl-muted)]">Manage results, live status, and league news.</p>
+          <p className="mt-1 text-sm text-[var(--hl-muted)]">Manage matches, teams, players, news, and admin access.</p>
         </div>
         <form action={logoutAdmin}>
           <button
@@ -103,87 +129,45 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
       ) : null}
 
       <nav className="flex flex-wrap gap-2">
-        <Link href="/admin?section=live" className={tabClass("live")}>
-          Live Control
-        </Link>
-        <Link href="/admin?section=matches" className={tabClass("matches")}>
-          Matches
-        </Link>
-        <Link href="/admin?section=teams-players" className={tabClass("teams-players")}>
-          Teams & Players
-        </Link>
-        <Link href="/admin?section=news" className={tabClass("news")}>
-          News
-        </Link>
+        <Link href="/admin?section=live" className={tabClass("live")}>Live Control</Link>
+        <Link href="/admin?section=matches" className={tabClass("matches")}>Matches</Link>
+        <Link href="/admin?section=teams-players" className={tabClass("teams-players")}>Teams & Players</Link>
+        <Link href="/admin?section=news" className={tabClass("news")}>News</Link>
+        <Link href="/admin?section=access" className={tabClass("access")}>Access & Logs</Link>
       </nav>
 
       <section className="grid gap-6 md:grid-cols-2">
         {activeSection === "live" ? (
           <article className="glass-card rounded-3xl border border-[var(--hl-red)]/20 p-6 md:col-span-2">
-          <h2 className="text-xl font-black text-[var(--hl-red)]">Field Mode (Live Control)</h2>
-          <p className="mt-1 text-sm text-[var(--hl-muted)]">
-            Use these quick actions on mobile while officials are at the field.
-          </p>
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
-            {matches?.map((match) => {
-              const home = getTeamName(
-                match.home_team as { name?: string } | { name?: string }[] | null,
-              );
-              const away = getTeamName(
-                match.away_team as { name?: string } | { name?: string }[] | null,
-              );
-              const homeScore = match.home_score ?? 0;
-              const awayScore = match.away_score ?? 0;
-              const minute = match.live_minute ?? 0;
-              return (
-                <article key={`field-${match.id}`} className="rounded-2xl border border-[var(--hl-red)]/15 bg-white p-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-black text-[var(--hl-ink)]">
-                      {home} vs {away}
-                    </p>
-                    <span className="rounded-full bg-[var(--hl-red)]/10 px-2 py-1 text-[10px] font-black uppercase tracking-[0.09em] text-[var(--hl-red)]">
-                      {match.status === "live" ? `LIVE ${minute}'` : match.status === "finished" ? "FT" : "Scheduled"}
-                    </span>
-                  </div>
-                  <p className="brand-display mt-2 text-4xl text-[var(--hl-red)]">
-                    {homeScore} - {awayScore}
-                  </p>
-                  <div className="mt-3 grid grid-cols-2 gap-2">
-                    <form action={addHomeGoal}>
-                      <input type="hidden" name="match_id" value={match.id} />
-                      <button type="submit" className="w-full rounded-xl bg-[var(--hl-red)] px-3 py-3 text-sm font-black text-white">
-                        + Goal {home}
-                      </button>
-                    </form>
-                    <form action={addAwayGoal}>
-                      <input type="hidden" name="match_id" value={match.id} />
-                      <button type="submit" className="w-full rounded-xl bg-[var(--hl-red)] px-3 py-3 text-sm font-black text-white">
-                        + Goal {away}
-                      </button>
-                    </form>
-                    <form action={addMinute}>
-                      <input type="hidden" name="match_id" value={match.id} />
-                      <button type="submit" className="w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-3 text-sm font-black text-[var(--hl-red)]">
-                        +1 Minute
-                      </button>
-                    </form>
-                    <form action={startLiveMatch}>
-                      <input type="hidden" name="match_id" value={match.id} />
-                      <button type="submit" className="w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-3 text-sm font-black text-[var(--hl-red)]">
-                        Start Live
-                      </button>
-                    </form>
-                  </div>
-                  <form action={finishMatch} className="mt-2">
-                    <input type="hidden" name="match_id" value={match.id} />
-                    <button type="submit" className="w-full rounded-xl bg-[var(--hl-gold)] px-3 py-3 text-sm font-black text-[var(--hl-red)]">
-                      Full Time
-                    </button>
-                  </form>
-                </article>
-              );
-            })}
-          </div>
+            <h2 className="text-xl font-black text-[var(--hl-red)]">Field Mode (Live Control)</h2>
+            <p className="mt-1 text-sm text-[var(--hl-muted)]">Quick mobile actions for officials at the pitch.</p>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              {matches?.map((match) => {
+                const home = getTeamName(match.home_team as { name?: string } | { name?: string }[] | null);
+                const away = getTeamName(match.away_team as { name?: string } | { name?: string }[] | null);
+                const homeScore = match.home_score ?? 0;
+                const awayScore = match.away_score ?? 0;
+                const minute = match.live_minute ?? 0;
+                return (
+                  <article key={`field-${match.id}`} className="rounded-2xl border border-[var(--hl-red)]/15 bg-white p-4">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-black text-[var(--hl-ink)]">{home} vs {away}</p>
+                      <span className="rounded-full bg-[var(--hl-red)]/10 px-2 py-1 text-[10px] font-black uppercase tracking-[0.09em] text-[var(--hl-red)]">
+                        {match.status === "live" ? `LIVE ${minute}'` : match.status === "finished" ? "FT" : "Scheduled"}
+                      </span>
+                    </div>
+                    <p className="brand-display mt-2 text-4xl text-[var(--hl-red)]">{homeScore} - {awayScore}</p>
+                    <div className="mt-3 grid grid-cols-2 gap-2">
+                      <form action={addHomeGoal}><input type="hidden" name="match_id" value={match.id} /><button type="submit" className="w-full rounded-xl bg-[var(--hl-red)] px-3 py-3 text-sm font-black text-white">+ Goal {home}</button></form>
+                      <form action={addAwayGoal}><input type="hidden" name="match_id" value={match.id} /><button type="submit" className="w-full rounded-xl bg-[var(--hl-red)] px-3 py-3 text-sm font-black text-white">+ Goal {away}</button></form>
+                      <form action={addMinute}><input type="hidden" name="match_id" value={match.id} /><button type="submit" className="w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-3 text-sm font-black text-[var(--hl-red)]">+1 Minute</button></form>
+                      <form action={startLiveMatch}><input type="hidden" name="match_id" value={match.id} /><button type="submit" className="w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-3 text-sm font-black text-[var(--hl-red)]">Start Live</button></form>
+                    </div>
+                    <form action={finishMatch} className="mt-2"><input type="hidden" name="match_id" value={match.id} /><button type="submit" className="w-full rounded-xl bg-[var(--hl-gold)] px-3 py-3 text-sm font-black text-[var(--hl-red)]">Full Time</button></form>
+                  </article>
+                );
+              })}
+            </div>
           </article>
         ) : null}
 
@@ -194,185 +178,73 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
               <p className="mt-1 text-sm text-[var(--hl-muted)]">Schedule a new match with date/time and venue.</p>
               <form action={createFixture} className="mt-4 space-y-3">
                 <div className="grid grid-cols-2 gap-3">
-                  <label className="block text-sm font-semibold">
-                    Home Team
-                    <select
-                      name="home_team_id"
-                      required
-                      className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]"
-                    >
-                      <option value="">Select team</option>
-                      {teams?.map((team) => (
-                        <option key={`home-${team.id}`} value={team.id}>
-                          {team.name}
-                        </option>
-                      ))}
+                  <label className="block text-sm font-semibold">Home Team
+                    <select name="home_team_id" required className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]">
+                      <option value="">Select team</option>{teams?.map((team) => (<option key={`home-${team.id}`} value={team.id}>{team.name}</option>))}
                     </select>
                   </label>
-                  <label className="block text-sm font-semibold">
-                    Away Team
-                    <select
-                      name="away_team_id"
-                      required
-                      className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]"
-                    >
-                      <option value="">Select team</option>
-                      {teams?.map((team) => (
-                        <option key={`away-${team.id}`} value={team.id}>
-                          {team.name}
-                        </option>
-                      ))}
+                  <label className="block text-sm font-semibold">Away Team
+                    <select name="away_team_id" required className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]">
+                      <option value="">Select team</option>{teams?.map((team) => (<option key={`away-${team.id}`} value={team.id}>{team.name}</option>))}
                     </select>
                   </label>
                 </div>
-                <label className="block text-sm font-semibold">
-                  Match Date & Time
-                  <input
-                    name="match_date"
-                    type="datetime-local"
-                    required
-                    className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]"
-                  />
-                </label>
-                <label className="block text-sm font-semibold">
-                  Venue
-                  <input
-                    name="venue"
-                    type="text"
-                    className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]"
-                    placeholder="UNAM Main Pitch"
-                  />
-                </label>
-                <label className="block text-sm font-semibold">
-                  Status
-                  <select
-                    name="status"
-                    defaultValue="scheduled"
-                    className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]"
-                  >
-                    <option value="scheduled">Scheduled</option>
-                    <option value="live">Live</option>
-                    <option value="finished">Finished</option>
+                <label className="block text-sm font-semibold">Match Date & Time<input name="match_date" type="datetime-local" required className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" /></label>
+                <label className="block text-sm font-semibold">Venue<input name="venue" type="text" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" placeholder="UNAM Main Pitch" /></label>
+                <label className="block text-sm font-semibold">Status
+                  <select name="status" defaultValue="scheduled" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]">
+                    <option value="scheduled">Scheduled</option><option value="live">Live</option><option value="finished">Finished</option>
                   </select>
                 </label>
                 <div className="grid grid-cols-3 gap-3">
-                  <label className="block text-sm font-semibold">
-                    Home Score
-                    <input
-                      name="home_score"
-                      type="number"
-                      min="0"
-                      className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]"
-                    />
-                  </label>
-                  <label className="block text-sm font-semibold">
-                    Away Score
-                    <input
-                      name="away_score"
-                      type="number"
-                      min="0"
-                      className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]"
-                    />
-                  </label>
-                  <label className="block text-sm font-semibold">
-                    Live Minute
-                    <input
-                      name="live_minute"
-                      type="number"
-                      min="0"
-                      max="130"
-                      className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]"
-                    />
-                  </label>
+                  <label className="block text-sm font-semibold">Home Score<input name="home_score" type="number" min="0" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" /></label>
+                  <label className="block text-sm font-semibold">Away Score<input name="away_score" type="number" min="0" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" /></label>
+                  <label className="block text-sm font-semibold">Live Minute<input name="live_minute" type="number" min="0" max="130" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" /></label>
                 </div>
-                <button
-                  type="submit"
-                  className="w-full rounded-full bg-[var(--hl-red)] px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-[var(--hl-red-dark)]"
-                >
-                  Create Fixture
-                </button>
+                <button type="submit" className="w-full rounded-full bg-[var(--hl-red)] px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-[var(--hl-red-dark)]">Create Fixture</button>
               </form>
             </article>
 
             <article className="glass-card rounded-3xl border border-[var(--hl-red)]/20 p-6">
-              <h2 className="text-xl font-black text-[var(--hl-red)]">Update Match</h2>
-              <p className="mt-1 text-sm text-[var(--hl-muted)]">Set live scores, final scores, and match status.</p>
+              <h2 className="text-xl font-black text-[var(--hl-red)]">Update or Delete Match</h2>
+              <p className="mt-1 text-sm text-[var(--hl-muted)]">Set scores, status, or remove incorrect fixtures.</p>
               <form action={updateMatchResult} className="mt-4 space-y-3">
-                <label className="block text-sm font-semibold">
-                  Match
-                  <select
-                    name="match_id"
-                    required
-                    className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]"
-                  >
+                <label className="block text-sm font-semibold">Match
+                  <select name="match_id" required className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]">
                     <option value="">Select a match</option>
                     {matches?.map((match) => {
-                      const home = getTeamName(
-                        match.home_team as { name?: string } | { name?: string }[] | null,
-                      );
-                      const away = getTeamName(
-                        match.away_team as { name?: string } | { name?: string }[] | null,
-                      );
+                      const home = getTeamName(match.home_team as { name?: string } | { name?: string }[] | null);
+                      const away = getTeamName(match.away_team as { name?: string } | { name?: string }[] | null);
                       const matchDate = new Date(match.match_date).toLocaleDateString("en-GB");
-                      return (
-                        <option key={match.id} value={match.id}>
-                          {home} vs {away} - {matchDate}
-                        </option>
-                      );
+                      return <option key={match.id} value={match.id}>{home} vs {away} - {matchDate}</option>;
                     })}
                   </select>
                 </label>
-
-                <label className="block text-sm font-semibold">
-                  Status
-                  <select
-                    name="status"
-                    defaultValue="scheduled"
-                    className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]"
-                  >
-                    <option value="scheduled">Scheduled</option>
-                    <option value="live">Live</option>
-                    <option value="finished">Finished</option>
+                <label className="block text-sm font-semibold">Status
+                  <select name="status" defaultValue="scheduled" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]">
+                    <option value="scheduled">Scheduled</option><option value="live">Live</option><option value="finished">Finished</option>
                   </select>
                 </label>
-
                 <div className="grid grid-cols-3 gap-3">
-                  <label className="block text-sm font-semibold">
-                    Home Score
-                    <input
-                      name="home_score"
-                      type="number"
-                      min="0"
-                      className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]"
-                    />
-                  </label>
-                  <label className="block text-sm font-semibold">
-                    Away Score
-                    <input
-                      name="away_score"
-                      type="number"
-                      min="0"
-                      className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]"
-                    />
-                  </label>
-                  <label className="block text-sm font-semibold">
-                    Live Minute
-                    <input
-                      name="live_minute"
-                      type="number"
-                      min="0"
-                      max="130"
-                      className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]"
-                    />
-                  </label>
+                  <label className="block text-sm font-semibold">Home Score<input name="home_score" type="number" min="0" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" /></label>
+                  <label className="block text-sm font-semibold">Away Score<input name="away_score" type="number" min="0" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" /></label>
+                  <label className="block text-sm font-semibold">Live Minute<input name="live_minute" type="number" min="0" max="130" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" /></label>
                 </div>
+                <button type="submit" className="w-full rounded-full bg-[var(--hl-red)] px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-[var(--hl-red-dark)]">Save Match Update</button>
+              </form>
 
-                <button
-                  type="submit"
-                  className="w-full rounded-full bg-[var(--hl-red)] px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-[var(--hl-red-dark)]"
-                >
-                  Save Match Update
-                </button>
+              <form action={deleteMatch} className="mt-4 space-y-3 border-t border-[var(--hl-red)]/10 pt-4">
+                <label className="block text-sm font-semibold">Delete Match
+                  <select name="match_id" required className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]">
+                    <option value="">Select match to delete</option>
+                    {matches?.map((match) => {
+                      const home = getTeamName(match.home_team as { name?: string } | { name?: string }[] | null);
+                      const away = getTeamName(match.away_team as { name?: string } | { name?: string }[] | null);
+                      return <option key={`del-${match.id}`} value={match.id}>{home} vs {away}</option>;
+                    })}
+                  </select>
+                </label>
+                <button type="submit" className="w-full rounded-full border border-red-200 bg-red-50 px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-red-700">Delete Match</button>
               </form>
             </article>
           </>
@@ -380,47 +252,33 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
 
         {activeSection === "news" ? (
           <article className="glass-card rounded-3xl border border-[var(--hl-red)]/20 p-6 md:col-span-2">
-          <h2 className="text-xl font-black text-[var(--hl-red)]">Publish News</h2>
-          <p className="mt-1 text-sm text-[var(--hl-muted)]">Create a new headline for the homepage and news page.</p>
-          <form action={createNewsPost} className="mt-4 space-y-3">
-            <label className="block text-sm font-semibold">
-              Headline
-              <input
-                name="title"
-                type="text"
-                required
-                className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]"
-                placeholder="Matchweek 4 kicks off this Friday"
-              />
-            </label>
-            <label className="block text-sm font-semibold">
-              Summary
-              <textarea
-                name="snippet"
-                rows={4}
-                required
-                className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]"
-                placeholder="Keep this short and informative for homepage cards."
-              />
-            </label>
-            <button
-              type="submit"
-              className="w-full rounded-full bg-[var(--hl-gold)] px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-[var(--hl-red)] transition hover:bg-[#ddb251]"
-            >
-              Publish News
-            </button>
-          </form>
+            <h2 className="text-xl font-black text-[var(--hl-red)]">Publish News</h2>
+            <p className="mt-1 text-sm text-[var(--hl-muted)]">Create and edit official league announcements.</p>
+            <form action={createNewsPost} className="mt-4 space-y-3">
+              <label className="block text-sm font-semibold">Headline<input name="title" type="text" required className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" placeholder="Matchweek 4 kicks off this Friday" /></label>
+              <label className="block text-sm font-semibold">Summary<textarea name="snippet" rows={4} required className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" placeholder="Keep this short and informative for homepage cards." /></label>
+              <button type="submit" className="w-full rounded-full bg-[var(--hl-gold)] px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-[var(--hl-red)] transition hover:bg-[#ddb251]">Publish News</button>
+            </form>
 
-          <div className="mt-6 border-t border-[var(--hl-red)]/10 pt-4">
-            <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--hl-muted)]">Recent News</p>
-            <ul className="mt-2 space-y-2 text-sm">
-              {latestNews?.map((item) => (
-                <li key={item.id} className="rounded-lg border border-[var(--hl-red)]/10 bg-white px-3 py-2">
-                  <p className="font-semibold text-[var(--hl-ink)]">{item.title}</p>
-                </li>
-              ))}
-            </ul>
-          </div>
+            <div className="mt-6 border-t border-[var(--hl-red)]/10 pt-4">
+              <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--hl-muted)]">Manage News</p>
+              <div className="mt-3 space-y-3">
+                {latestNews?.map((item) => (
+                  <article key={item.id} className="rounded-xl border border-[var(--hl-red)]/10 bg-white p-3">
+                    <form action={updateNewsPost} className="space-y-2">
+                      <input type="hidden" name="news_id" value={item.id} />
+                      <input name="title" defaultValue={item.title} required className="w-full rounded-lg border border-[var(--hl-red)]/20 px-3 py-2 text-sm" />
+                      <textarea name="snippet" defaultValue={item.snippet} rows={3} required className="w-full rounded-lg border border-[var(--hl-red)]/20 px-3 py-2 text-sm" />
+                      <button type="submit" className="rounded-full bg-[var(--hl-red)] px-3 py-2 text-xs font-black uppercase tracking-[0.08em] text-white">Save</button>
+                    </form>
+                    <form action={deleteNewsPost} className="mt-2">
+                      <input type="hidden" name="news_id" value={item.id} />
+                      <button type="submit" className="rounded-full border border-red-200 bg-red-50 px-3 py-2 text-xs font-black uppercase tracking-[0.08em] text-red-700">Delete</button>
+                    </form>
+                  </article>
+                ))}
+              </div>
+            </div>
           </article>
         ) : null}
 
@@ -430,125 +288,61 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
               <h2 className="text-xl font-black text-[var(--hl-red)]">Create Team</h2>
               <p className="mt-1 text-sm text-[var(--hl-muted)]">Add a new team or update short code by name.</p>
               <form action={createTeam} className="mt-4 space-y-3">
-                <label className="block text-sm font-semibold">
-                  Team Name
-                  <input
-                    name="name"
-                    type="text"
-                    required
-                    className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]"
-                    placeholder="Architecture United"
-                  />
-                </label>
-                <label className="block text-sm font-semibold">
-                  Short Name (optional)
-                  <input
-                    name="short_name"
-                    type="text"
-                    maxLength={6}
-                    className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm uppercase outline-none focus:border-[var(--hl-red)]"
-                    placeholder="ARC"
-                  />
-                </label>
-                <button
-                  type="submit"
-                  className="w-full rounded-full bg-[var(--hl-red)] px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-[var(--hl-red-dark)]"
-                >
-                  Save Team
-                </button>
+                <label className="block text-sm font-semibold">Team Name<input name="name" type="text" required className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" placeholder="Architecture United" /></label>
+                <label className="block text-sm font-semibold">Short Name (optional)<input name="short_name" type="text" maxLength={6} className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm uppercase outline-none focus:border-[var(--hl-red)]" placeholder="ARC" /></label>
+                <button type="submit" className="w-full rounded-full bg-[var(--hl-red)] px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-[var(--hl-red-dark)]">Save Team</button>
               </form>
+
+              <div className="mt-6 border-t border-[var(--hl-red)]/10 pt-4">
+                <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--hl-muted)]">Current Teams</p>
+                <ul className="mt-2 space-y-2 text-sm">
+                  {teams?.map((team) => (
+                    <li key={team.id} className="rounded-lg border border-[var(--hl-red)]/10 bg-white px-3 py-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="font-semibold text-[var(--hl-ink)]">{team.name}{team.short_name ? ` (${team.short_name})` : ""}</p>
+                        <form action={deleteTeam}><input type="hidden" name="team_id" value={team.id} /><button type="submit" className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-red-700">Delete</button></form>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             </article>
 
             <article className="glass-card rounded-3xl border border-[var(--hl-red)]/20 p-6">
               <h2 className="text-xl font-black text-[var(--hl-red)]">Create Player</h2>
               <p className="mt-1 text-sm text-[var(--hl-muted)]">Add player roster and optional initial stats.</p>
               <form action={createPlayer} className="mt-4 space-y-3">
-                <label className="block text-sm font-semibold">
-                  Team
-                  <select
-                    name="team_id"
-                    required
-                    className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]"
-                  >
-                    <option value="">Select team</option>
-                    {teams?.map((team) => (
-                      <option key={team.id} value={team.id}>
-                        {team.name}
-                        {team.short_name ? ` (${team.short_name})` : ""}
-                      </option>
-                    ))}
+                <label className="block text-sm font-semibold">Team
+                  <select name="team_id" required className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]">
+                    <option value="">Select team</option>{teams?.map((team) => (<option key={team.id} value={team.id}>{team.name}{team.short_name ? ` (${team.short_name})` : ""}</option>))}
                   </select>
                 </label>
-                <label className="block text-sm font-semibold">
-                  Full Name
-                  <input
-                    name="full_name"
-                    type="text"
-                    required
-                    className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]"
-                    placeholder="John Doe"
-                  />
-                </label>
+                <label className="block text-sm font-semibold">Full Name<input name="full_name" type="text" required className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" placeholder="John Doe" /></label>
                 <div className="grid grid-cols-2 gap-3">
-                  <label className="block text-sm font-semibold">
-                    Shirt No.
-                    <input
-                      name="shirt_number"
-                      type="number"
-                      min="1"
-                      max="99"
-                      className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]"
-                    />
-                  </label>
-                  <label className="block text-sm font-semibold">
-                    Position
-                    <input
-                      name="position"
-                      type="text"
-                      className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]"
-                      placeholder="Forward"
-                    />
-                  </label>
+                  <label className="block text-sm font-semibold">Shirt No.<input name="shirt_number" type="number" min="1" max="99" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" /></label>
+                  <label className="block text-sm font-semibold">Position<input name="position" type="text" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" placeholder="Forward" /></label>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <label className="block text-sm font-semibold">
-                    Goals
-                    <input
-                      name="goals"
-                      type="number"
-                      min="0"
-                      className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]"
-                    />
-                  </label>
-                  <label className="block text-sm font-semibold">
-                    Assists
-                    <input
-                      name="assists"
-                      type="number"
-                      min="0"
-                      className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]"
-                    />
-                  </label>
+                  <label className="block text-sm font-semibold">Goals<input name="goals" type="number" min="0" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" /></label>
+                  <label className="block text-sm font-semibold">Assists<input name="assists" type="number" min="0" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" /></label>
                 </div>
-                <button
-                  type="submit"
-                  className="w-full rounded-full bg-[var(--hl-gold)] px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-[var(--hl-red)] transition hover:bg-[#ddb251]"
-                >
-                  Save Player
-                </button>
+                <button type="submit" className="w-full rounded-full bg-[var(--hl-gold)] px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-[var(--hl-red)] transition hover:bg-[#ddb251]">Save Player</button>
               </form>
 
               <div className="mt-6 border-t border-[var(--hl-red)]/10 pt-4">
                 <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--hl-muted)]">Recent Players</p>
                 <ul className="mt-2 space-y-2 text-sm">
                   {latestPlayers?.map((player) => {
-                    const teamName = getTeamName(
-                      player.team as { name?: string } | { name?: string }[] | null,
-                    );
+                    const teamName = getTeamName(player.team as { name?: string } | { name?: string }[] | null);
                     return (
                       <li key={player.id} className="rounded-lg border border-[var(--hl-red)]/10 bg-white px-3 py-2">
-                        <p className="font-semibold text-[var(--hl-ink)]">{player.full_name}</p>
-                        <p className="text-xs text-[var(--hl-muted)]">{teamName}</p>
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="font-semibold text-[var(--hl-ink)]">{player.full_name}</p>
+                            <p className="text-xs text-[var(--hl-muted)]">{teamName}</p>
+                          </div>
+                          <form action={deletePlayer}><input type="hidden" name="player_id" value={player.id} /><button type="submit" className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-red-700">Delete</button></form>
+                        </div>
                       </li>
                     );
                   })}
@@ -557,7 +351,73 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
             </article>
           </>
         ) : null}
+
+        {activeSection === "access" ? (
+          <>
+            <article className="glass-card rounded-3xl border border-[var(--hl-red)]/20 p-6">
+              <h2 className="text-xl font-black text-[var(--hl-red)]">Admin Access</h2>
+              <p className="mt-1 text-sm text-[var(--hl-muted)]">Grant or remove access without editing SQL manually.</p>
+              {adminUsersError ? (
+                <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Role-based admin controls need `supabase/admin-enhancements.sql` to be executed.</p>
+              ) : null}
+              <form action={addAdminUser} className="mt-4 space-y-3">
+                <label className="block text-sm font-semibold">User ID (UUID)<input name="user_id" required className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm" placeholder="00000000-0000-0000-0000-000000000000" /></label>
+                <label className="block text-sm font-semibold">Role
+                  <select name="role" defaultValue="match_official" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm">
+                    {roleOptions.map((role) => <option key={role.value} value={role.value}>{role.label}</option>)}
+                  </select>
+                </label>
+                <button type="submit" className="w-full rounded-full bg-[var(--hl-red)] px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white">Save Admin User</button>
+              </form>
+
+              <div className="mt-6 border-t border-[var(--hl-red)]/10 pt-4">
+                <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--hl-muted)]">Current Admin Users</p>
+                <ul className="mt-2 space-y-2">
+                  {adminUsers?.map((adminItem) => (
+                    <li key={adminItem.user_id} className="rounded-lg border border-[var(--hl-red)]/10 bg-white p-3">
+                      <p className="text-xs text-[var(--hl-muted)]">{adminItem.user_id}</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <form action={updateAdminUserRole} className="flex items-center gap-2">
+                          <input type="hidden" name="user_id" value={adminItem.user_id} />
+                          <select name="role" defaultValue={(adminItem as { role?: string }).role ?? "match_official"} className="rounded-lg border border-[var(--hl-red)]/20 px-2 py-1 text-xs">
+                            {roleOptions.map((role) => <option key={`${adminItem.user_id}-${role.value}`} value={role.value}>{role.label}</option>)}
+                          </select>
+                          <button type="submit" className="rounded-full bg-[var(--hl-red)] px-3 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-white">Update Role</button>
+                        </form>
+                        {adminItem.user_id !== user.id ? (
+                          <form action={removeAdminUser}>
+                            <input type="hidden" name="user_id" value={adminItem.user_id} />
+                            <button type="submit" className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-red-700">Remove</button>
+                          </form>
+                        ) : (
+                          <span className="text-[10px] font-bold uppercase tracking-[0.08em] text-[var(--hl-muted)]">You</span>
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </article>
+
+            <article className="glass-card rounded-3xl border border-[var(--hl-red)]/20 p-6">
+              <h2 className="text-xl font-black text-[var(--hl-red)]">Activity Log</h2>
+              <p className="mt-1 text-sm text-[var(--hl-muted)]">Recent admin actions for accountability.</p>
+              {activityError ? (
+                <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Run `supabase/admin-enhancements.sql` to enable activity logging.</p>
+              ) : null}
+              <ul className="mt-4 space-y-2 text-sm">
+                {activityLogs?.map((log) => (
+                  <li key={log.id} className="rounded-lg border border-[var(--hl-red)]/10 bg-white px-3 py-2">
+                    <p className="font-semibold text-[var(--hl-ink)]">{log.action_type} {log.entity_type}{log.entity_id ? ` #${log.entity_id}` : ""}</p>
+                    <p className="text-xs text-[var(--hl-muted)]">by {log.actor_user_id} · {new Date(log.created_at).toLocaleString("en-GB")}</p>
+                  </li>
+                ))}
+              </ul>
+            </article>
+          </>
+        ) : null}
       </section>
     </div>
   );
 }
+

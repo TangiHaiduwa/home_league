@@ -46,21 +46,14 @@ export default async function Home() {
 
         <section className="grid items-start gap-8 lg:grid-cols-[1.1fr_0.9fr]">
           <div className="fade-up space-y-5">
-            <div className="inline-flex items-center gap-2 rounded-full border border-[var(--hl-red)]/25 bg-white/85 px-4 py-1 text-xs font-bold uppercase tracking-[0.12em] text-[var(--hl-red)]">
-              <span className="h-2 w-2 rounded-full bg-[#e32222] shadow-[0_0_0_4px_rgba(227,34,34,0.22)]" />
-              Live Match Center
-            </div>
-            <p className="inline-block rounded-full border border-[var(--hl-gold)]/60 bg-[var(--hl-gold)]/20 px-4 py-1 text-xs font-bold uppercase tracking-[0.22em] text-[var(--hl-red)]">
-              Official Student League Hub
-            </p>
             <h1 className="brand-display text-5xl leading-[0.9] text-[var(--hl-red)] md:text-7xl">
-              Campus Football.
+              UNAM Home League
               <br />
-              Nation-Level Vision.
+              Matchday Hub.
             </h1>
             <p className="max-w-xl text-base leading-7 text-[var(--hl-muted)] md:text-lg">
-              UNAM Home League is building a professional digital experience for university football in Namibia, with a model
-              that can scale to national competition.
+              Follow every matchday with official fixtures, live scores, results, league standings, player stats, and
+              verified announcements.
             </p>
             <div className="flex flex-wrap gap-3">
               <Link className="rounded-full bg-[var(--hl-red)] px-6 py-3 text-sm font-extrabold uppercase tracking-[0.08em] text-white transition hover:bg-[var(--hl-red-dark)]" href="/fixtures">
@@ -181,16 +174,15 @@ export default async function Home() {
 
         <section className="fade-up delay-3 rounded-3xl bg-[var(--hl-red)] px-6 py-8 text-white shadow-[0_20px_60px_rgba(120,11,24,0.35)] md:px-10">
           <h2 className="brand-display text-4xl leading-[0.95] text-[var(--hl-gold)] md:text-5xl">
-            Building The Future Of
+            Official Home Of
             <br />
-            Namibian Football Platforms
+            UNAM Home League
           </h2>
           <p className="mt-3 max-w-2xl text-sm leading-7 text-white/85 md:text-base">
-            This UNAM implementation is the proof-of-concept for a full national football league platform: fixtures, standings,
-            stats, and fan engagement in one place.
+            This is the league&apos;s official website for public updates, match information, and competition records.
           </p>
-          <Link className="mt-5 inline-block rounded-full bg-[var(--hl-gold)] px-6 py-3 text-sm font-black uppercase tracking-[0.1em] text-[var(--hl-red)] transition hover:bg-[#ddb251]" href="/news">
-            View Project Vision
+          <Link className="mt-5 inline-block rounded-full bg-[var(--hl-gold)] px-6 py-3 text-sm font-black uppercase tracking-[0.1em] text-[var(--hl-red)] transition hover:bg-[#ddb251]" href="/fixtures">
+            View Fixtures
           </Link>
         </section>
       </main>
