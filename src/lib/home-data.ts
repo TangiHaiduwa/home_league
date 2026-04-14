@@ -1,6 +1,6 @@
 import { supabase } from "@/lib/supabase/server";
 
-export type FixtureStatus = "scheduled" | "live" | "finished";
+export type FixtureStatus = "scheduled" | "live" | "finished" | "postponed" | "cancelled" | "abandoned";
 
 export type Fixture = {
   home: string;
@@ -12,6 +12,7 @@ export type Fixture = {
   homeScore: number | null;
   awayScore: number | null;
   liveMinute: number | null;
+  statusNote?: string | null;
 };
 
 export type Standing = {
@@ -116,14 +117,15 @@ function getRelationName(
 
 function getPlayerData(
   playerRelation:
-    | { full_name?: string; team?: { name?: string } | { name?: string }[] | null }
-    | { full_name?: string; team?: { name?: string } | { name?: string }[] | null }[]
+    | { first_name?: string; last_name?: string; team?: { name?: string } | { name?: string }[] | null }
+    | { first_name?: string; last_name?: string; team?: { name?: string } | { name?: string }[] | null }[]
     | null
     | undefined,
 ) {
   const player = Array.isArray(playerRelation) ? playerRelation[0] : playerRelation;
+  const fullName = [player?.first_name ?? "", player?.last_name ?? ""].join(" ").trim();
   return {
-    player: player?.full_name ?? "Unknown Player",
+    player: fullName || "Unknown Player",
     team: getRelationName(player?.team, "Unknown Team"),
   };
 }
@@ -140,7 +142,21 @@ function normalizeStatus(status: string | null): FixtureStatus {
   const value = (status ?? "scheduled").toLowerCase();
   if (value === "live" || value === "in_progress") return "live";
   if (value === "finished" || value === "ft" || value === "full_time") return "finished";
+  if (value === "postponed") return "postponed";
+  if (value === "cancelled") return "cancelled";
+  if (value === "abandoned") return "abandoned";
   return "scheduled";
+}
+
+async function getActiveSeasonId() {
+  const { data, error } = await supabase
+    .from("seasons")
+    .select("id")
+    .eq("is_active", true)
+    .single();
+
+  if (error) return null;
+  return data?.id ?? null;
 }
 
 function mapFixtureRow(item: {
@@ -152,6 +168,7 @@ function mapFixtureRow(item: {
   home_score: number | null;
   away_score: number | null;
   live_minute: number | null;
+  status_note?: string | null;
 }): Fixture {
   return {
     home: getRelationName(item.home_team, "TBD"),
@@ -163,18 +180,27 @@ function mapFixtureRow(item: {
     homeScore: item.home_score,
     awayScore: item.away_score,
     liveMinute: item.live_minute,
+    statusNote: item.status_note ?? null,
   };
 }
 
 export async function getHomeData(): Promise<HomeData> {
+  const activeSeasonId = await getActiveSeasonId();
+
+  let fixturesQuery = supabase
+    .from("matches")
+    .select(
+      "match_date, venue, status, home_score, away_score, live_minute, status_note, home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name)",
+    )
+    .order("match_date", { ascending: true })
+    .limit(6);
+
+  if (activeSeasonId) {
+    fixturesQuery = fixturesQuery.eq("season_id", activeSeasonId);
+  }
+
   const [fixturesResult, standingsResult, newsResult, scorersResult] = await Promise.all([
-    supabase
-      .from("matches")
-      .select(
-        "match_date, venue, status, home_score, away_score, live_minute, home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name)",
-      )
-      .order("match_date", { ascending: true })
-      .limit(6),
+    fixturesQuery,
     supabase
       .from("league_standings")
       .select("played, points, team:teams!league_standings_team_id_fkey(name)")
@@ -183,7 +209,7 @@ export async function getHomeData(): Promise<HomeData> {
     supabase.from("news").select("title, snippet").order("created_at", { ascending: false }).limit(3),
     supabase
       .from("player_stats")
-      .select("goals, player:players!player_stats_player_id_fkey(full_name, team:teams!players_team_id_fkey(name))")
+      .select("goals, player:players!player_stats_player_id_fkey(first_name, last_name, team:teams!players_team_id_fkey(name))")
       .order("goals", { ascending: false })
       .limit(5),
   ]);
@@ -218,8 +244,8 @@ export async function getHomeData(): Promise<HomeData> {
     scorersResult.data?.map((item) => {
       const playerData = getPlayerData(
         item.player as
-          | { full_name?: string; team?: { name?: string } | { name?: string }[] | null }
-          | { full_name?: string; team?: { name?: string } | { name?: string }[] | null }[]
+          | { first_name?: string; last_name?: string; team?: { name?: string } | { name?: string }[] | null }
+          | { first_name?: string; last_name?: string; team?: { name?: string } | { name?: string }[] | null }[]
           | null,
       );
 
@@ -244,13 +270,21 @@ export async function getHomeData(): Promise<HomeData> {
 }
 
 export async function getFixturesData() {
-  const result = await supabase
+  const activeSeasonId = await getActiveSeasonId();
+
+  let query = supabase
     .from("matches")
     .select(
-      "match_date, venue, status, home_score, away_score, live_minute, home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name)",
+      "match_date, venue, status, home_score, away_score, live_minute, status_note, home_team:teams!matches_home_team_id_fkey(name), away_team:teams!matches_away_team_id_fkey(name)",
     )
     .order("match_date", { ascending: true })
     .limit(30);
+
+  if (activeSeasonId) {
+    query = query.eq("season_id", activeSeasonId);
+  }
+
+  const result = await query;
 
   if (result.error || !result.data?.length) {
     return { fixtures: fallbackFixtures, source: "fallback" as const };
@@ -342,7 +376,7 @@ export async function getTeamsData() {
 export async function getScorersData() {
   const result = await supabase
     .from("player_stats")
-    .select("goals, player:players!player_stats_player_id_fkey(full_name, team:teams!players_team_id_fkey(name))")
+    .select("goals, player:players!player_stats_player_id_fkey(first_name, last_name, team:teams!players_team_id_fkey(name))")
     .order("goals", { ascending: false })
     .limit(20);
 
@@ -354,8 +388,8 @@ export async function getScorersData() {
     scorers: result.data.map((item) => {
       const playerData = getPlayerData(
         item.player as
-          | { full_name?: string; team?: { name?: string } | { name?: string }[] | null }
-          | { full_name?: string; team?: { name?: string } | { name?: string }[] | null }[]
+          | { first_name?: string; last_name?: string; team?: { name?: string } | { name?: string }[] | null }
+          | { first_name?: string; last_name?: string; team?: { name?: string } | { name?: string }[] | null }[]
           | null,
       );
       return {

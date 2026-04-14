@@ -66,6 +66,19 @@ function revalidateLeagueViews() {
   revalidatePath("/admin");
 }
 
+async function getActiveSeasonId(
+  supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
+) {
+  const { data, error } = await supabase
+    .from("seasons")
+    .select("id")
+    .eq("is_active", true)
+    .single();
+
+  if (error) return null;
+  return data?.id ?? null;
+}
+
 async function logAdminEvent(
   supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>,
   userId: string,
@@ -107,6 +120,70 @@ export async function logoutAdmin() {
   redirect("/admin/login");
 }
 
+export async function createSeason(formData: FormData) {
+  const { supabase, user } = await requireSuperAdmin();
+
+  const name = String(formData.get("name") ?? "").trim();
+  const startDateRaw = String(formData.get("start_date") ?? "").trim();
+  const endDateRaw = String(formData.get("end_date") ?? "").trim();
+  const makeActive = String(formData.get("make_active") ?? "") === "on";
+
+  if (!name) {
+    redirect("/admin?section=seasons&error=Season name is required");
+  }
+
+  if (makeActive) {
+    await supabase.from("seasons").update({ is_active: false }).eq("is_active", true);
+  }
+
+  const { data, error } = await supabase
+    .from("seasons")
+    .insert({
+      name,
+      start_date: startDateRaw || null,
+      end_date: endDateRaw || null,
+      is_active: makeActive,
+    })
+    .select("id")
+    .single();
+
+  if (error) {
+    redirect(`/admin?section=seasons&error=${encodeURIComponent(error.message)}`);
+  }
+
+  await logAdminEvent(supabase, user.id, "create", "season", String(data?.id ?? ""), {
+    name,
+    makeActive,
+  });
+
+  revalidateLeagueViews();
+  redirect("/admin?section=seasons&success=Season created");
+}
+
+export async function setActiveSeason(formData: FormData) {
+  const { supabase, user } = await requireSuperAdmin();
+
+  const seasonId = Number(formData.get("season_id"));
+  if (!Number.isFinite(seasonId)) {
+    redirect("/admin?section=seasons&error=Invalid season selected");
+  }
+
+  const { error: clearError } = await supabase.from("seasons").update({ is_active: false }).eq("is_active", true);
+  if (clearError) {
+    redirect(`/admin?section=seasons&error=${encodeURIComponent(clearError.message)}`);
+  }
+
+  const { error } = await supabase.from("seasons").update({ is_active: true }).eq("id", seasonId);
+  if (error) {
+    redirect(`/admin?section=seasons&error=${encodeURIComponent(error.message)}`);
+  }
+
+  await logAdminEvent(supabase, user.id, "activate", "season", String(seasonId));
+
+  revalidateLeagueViews();
+  redirect("/admin?section=seasons&success=Active season updated");
+}
+
 export async function updateMatchResult(formData: FormData) {
   const { supabase, user } = await requireAdmin();
 
@@ -115,6 +192,7 @@ export async function updateMatchResult(formData: FormData) {
   const homeScoreRaw = String(formData.get("home_score") ?? "");
   const awayScoreRaw = String(formData.get("away_score") ?? "");
   const liveMinuteRaw = String(formData.get("live_minute") ?? "");
+  const statusNoteRaw = String(formData.get("status_note") ?? "").trim();
 
   const homeScore = homeScoreRaw === "" ? null : Number(homeScoreRaw);
   const awayScore = awayScoreRaw === "" ? null : Number(awayScoreRaw);
@@ -131,6 +209,7 @@ export async function updateMatchResult(formData: FormData) {
       home_score: homeScore,
       away_score: awayScore,
       live_minute: liveMinute,
+      status_note: statusNoteRaw || null,
     })
     .eq("id", matchId);
 
@@ -143,6 +222,7 @@ export async function updateMatchResult(formData: FormData) {
     homeScore,
     awayScore,
     liveMinute,
+    statusNote: statusNoteRaw || null,
   });
 
   revalidateLeagueViews();
@@ -295,7 +375,8 @@ export async function createPlayer(formData: FormData) {
   const { supabase, user } = await requireAdmin();
 
   const teamId = Number(formData.get("team_id"));
-  const fullName = String(formData.get("full_name") ?? "").trim();
+  const firstName = String(formData.get("first_name") ?? "").trim();
+  const lastName = String(formData.get("last_name") ?? "").trim();
   const shirtRaw = String(formData.get("shirt_number") ?? "").trim();
   const positionRaw = String(formData.get("position") ?? "").trim();
   const goalsRaw = String(formData.get("goals") ?? "").trim();
@@ -304,8 +385,8 @@ export async function createPlayer(formData: FormData) {
   if (!Number.isFinite(teamId)) {
     redirect("/admin?section=teams-players&error=Select a valid team");
   }
-  if (!fullName) {
-    redirect("/admin?section=teams-players&error=Player name is required");
+  if (!firstName || !lastName) {
+    redirect("/admin?section=teams-players&error=First name and last name are required");
   }
 
   const shirt_number = shirtRaw === "" ? null : Number(shirtRaw);
@@ -318,11 +399,12 @@ export async function createPlayer(formData: FormData) {
     .upsert(
       {
         team_id: teamId,
-        full_name: fullName,
+        first_name: firstName,
+        last_name: lastName,
         shirt_number,
         position,
       },
-      { onConflict: "team_id,full_name" },
+      { onConflict: "team_id,first_name,last_name" },
     )
     .select("id")
     .single();
@@ -346,7 +428,8 @@ export async function createPlayer(formData: FormData) {
 
   await logAdminEvent(supabase, user.id, "upsert", "player", String(player.id), {
     teamId,
-    fullName,
+    firstName,
+    lastName,
     goals,
     assists,
   });
@@ -374,6 +457,65 @@ export async function deletePlayer(formData: FormData) {
   redirect("/admin?section=teams-players&success=Player deleted");
 }
 
+export async function transferPlayer(formData: FormData) {
+  const { supabase, user } = await requireAdmin();
+
+  const playerId = Number(formData.get("player_id"));
+  const toTeamId = Number(formData.get("to_team_id"));
+  const transferReasonRaw = String(formData.get("transfer_reason") ?? "").trim();
+  const transferReason = transferReasonRaw === "" ? null : transferReasonRaw;
+
+  if (!Number.isFinite(playerId) || !Number.isFinite(toTeamId)) {
+    redirect("/admin?section=teams-players&error=Invalid player transfer request");
+  }
+
+  const { data: existingPlayer, error: playerError } = await supabase
+    .from("players")
+    .select("id, team_id, first_name, last_name")
+    .eq("id", playerId)
+    .single();
+
+  if (playerError || !existingPlayer) {
+    redirect("/admin?section=teams-players&error=Player not found");
+  }
+
+  if (existingPlayer.team_id === toTeamId) {
+    redirect("/admin?section=teams-players&error=Player is already in that team");
+  }
+
+  const { error } = await supabase.from("players").update({ team_id: toTeamId }).eq("id", playerId);
+  if (error) {
+    redirect(`/admin?section=teams-players&error=${encodeURIComponent(error.message)}`);
+  }
+
+  const { error: historyError } = await supabase.from("player_transfers").insert({
+    player_id: playerId,
+    from_team_id: existingPlayer.team_id,
+    to_team_id: toTeamId,
+    transfer_reason: transferReason,
+    actor_user_id: user.id,
+  });
+
+  // Keep transfer flow working even if migration has not been run yet.
+  if (historyError && !["42P01", "PGRST205"].includes(historyError.code ?? "")) {
+    redirect(`/admin?section=teams-players&error=${encodeURIComponent(historyError.message)}`);
+  }
+
+  await logAdminEvent(supabase, user.id, "transfer", "player", String(playerId), {
+    fromTeamId: existingPlayer.team_id,
+    toTeamId,
+    transferReason,
+    firstName: existingPlayer.first_name,
+    lastName: existingPlayer.last_name,
+  });
+
+  revalidateLeagueViews();
+  if (historyError && ["42P01", "PGRST205"].includes(historyError.code ?? "")) {
+    redirect("/admin?section=teams-players&success=Player transferred (history table not yet enabled)");
+  }
+  redirect("/admin?section=teams-players&success=Player transferred");
+}
+
 export async function createFixture(formData: FormData) {
   const { supabase, user } = await requireAdmin();
 
@@ -385,6 +527,8 @@ export async function createFixture(formData: FormData) {
   const homeScoreRaw = String(formData.get("home_score") ?? "").trim();
   const awayScoreRaw = String(formData.get("away_score") ?? "").trim();
   const liveMinuteRaw = String(formData.get("live_minute") ?? "").trim();
+  const statusNoteRaw = String(formData.get("status_note") ?? "").trim();
+  const seasonIdRaw = String(formData.get("season_id") ?? "").trim();
 
   if (!Number.isFinite(homeTeamId) || !Number.isFinite(awayTeamId)) {
     redirect("/admin?section=matches&error=Select valid home and away teams");
@@ -400,6 +544,8 @@ export async function createFixture(formData: FormData) {
   const home_score = homeScoreRaw === "" ? null : Number(homeScoreRaw);
   const away_score = awayScoreRaw === "" ? null : Number(awayScoreRaw);
   const live_minute = liveMinuteRaw === "" ? null : Number(liveMinuteRaw);
+  const parsedSeasonId = seasonIdRaw === "" ? null : Number(seasonIdRaw);
+  const season_id = Number.isFinite(parsedSeasonId) ? parsedSeasonId : await getActiveSeasonId(supabase);
 
   const { data, error } = await supabase
     .from("matches")
@@ -412,6 +558,8 @@ export async function createFixture(formData: FormData) {
       home_score,
       away_score,
       live_minute,
+      status_note: statusNoteRaw || null,
+      season_id,
     })
     .select("id")
     .single();
@@ -425,10 +573,74 @@ export async function createFixture(formData: FormData) {
     awayTeamId,
     matchDate,
     status,
+    statusNote: statusNoteRaw || null,
+    seasonId: season_id,
   });
 
   revalidateLeagueViews();
   redirect("/admin?section=matches&success=Fixture created");
+}
+
+export async function createMediaAsset(formData: FormData) {
+  const { supabase, user } = await requireAdmin();
+
+  const title = String(formData.get("title") ?? "").trim();
+  const mediaUrl = String(formData.get("media_url") ?? "").trim();
+  const mediaType = String(formData.get("media_type") ?? "image").trim();
+  const captionRaw = String(formData.get("caption") ?? "").trim();
+  const seasonIdRaw = String(formData.get("season_id") ?? "").trim();
+
+  if (!title || !mediaUrl) {
+    redirect("/admin?section=media&error=Title and media URL are required");
+  }
+
+  const parsedSeasonId = seasonIdRaw === "" ? null : Number(seasonIdRaw);
+  const season_id = Number.isFinite(parsedSeasonId) ? parsedSeasonId : await getActiveSeasonId(supabase);
+
+  const { data, error } = await supabase
+    .from("media_assets")
+    .insert({
+      title,
+      media_url: mediaUrl,
+      media_type: mediaType,
+      caption: captionRaw || null,
+      season_id,
+      created_by: user.id,
+    })
+    .select("id")
+    .single();
+
+  if (error) {
+    redirect(`/admin?section=media&error=${encodeURIComponent(error.message)}`);
+  }
+
+  await logAdminEvent(supabase, user.id, "create", "media_asset", String(data?.id ?? ""), {
+    title,
+    mediaType,
+    seasonId: season_id,
+  });
+
+  revalidatePath("/admin");
+  redirect("/admin?section=media&success=Media asset saved");
+}
+
+export async function deleteMediaAsset(formData: FormData) {
+  const { supabase, user } = await requireAdmin();
+
+  const mediaId = Number(formData.get("media_id"));
+  if (!Number.isFinite(mediaId)) {
+    redirect("/admin?section=media&error=Invalid media item selected");
+  }
+
+  const { error } = await supabase.from("media_assets").delete().eq("id", mediaId);
+  if (error) {
+    redirect(`/admin?section=media&error=${encodeURIComponent(error.message)}`);
+  }
+
+  await logAdminEvent(supabase, user.id, "delete", "media_asset", String(mediaId));
+
+  revalidatePath("/admin");
+  redirect("/admin?section=media&success=Media asset deleted");
 }
 
 async function getMatchOrRedirect(matchIdRaw: FormDataEntryValue | null) {

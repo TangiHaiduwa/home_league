@@ -7,15 +7,21 @@ import Link from "next/link";
 
 export default async function Home() {
   const { fixtures, standings, news, scorers, source } = await getHomeData();
+  const getStatusLabel = (status: string, liveMinute: number | null) => {
+    if (status === "live") return `LIVE ${liveMinute ?? 0}'`;
+    if (status === "finished") return "FULL TIME";
+    if (status === "postponed") return "POSTPONED";
+    if (status === "cancelled") return "CANCELLED";
+    if (status === "abandoned") return "ABANDONED";
+    return "SCHEDULED";
+  };
   const featuredFixture = fixtures.find((fixture) => fixture.status === "live") ?? fixtures[0];
   const hasFeaturedScore =
     featuredFixture && featuredFixture.homeScore !== null && featuredFixture.awayScore !== null;
   const featuredStatusText = featuredFixture
-    ? featuredFixture.status === "live"
-      ? `LIVE ${featuredFixture.liveMinute ?? 0}'`
-      : featuredFixture.status === "finished"
-        ? "FULL TIME"
-        : featuredFixture.date
+    ? featuredFixture.status === "scheduled"
+      ? featuredFixture.date
+      : getStatusLabel(featuredFixture.status, featuredFixture.liveMinute)
     : "Fri 18 Apr";
 
   if (source === "fallback") {
@@ -97,7 +103,7 @@ export default async function Home() {
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-xs font-bold uppercase tracking-[0.12em] text-[var(--hl-muted)]">{fixture.date}</p>
                     <span className="rounded-full bg-[var(--hl-red)]/10 px-2 py-1 text-[10px] font-black uppercase tracking-[0.09em] text-[var(--hl-red)]">
-                      {fixture.status === "live" ? `LIVE ${fixture.liveMinute ?? 0}'` : fixture.status === "finished" ? "FT" : "Scheduled"}
+                      {fixture.status === "scheduled" ? "Scheduled" : getStatusLabel(fixture.status, fixture.liveMinute)}
                     </span>
                   </div>
                   <div className="mt-2 flex items-center justify-between gap-3">
@@ -116,6 +122,7 @@ export default async function Home() {
                       {fixture.homeScore} - {fixture.awayScore}
                     </p>
                   ) : null}
+                  {fixture.statusNote ? <p className="mt-1 text-xs text-[var(--hl-muted)]">{fixture.statusNote}</p> : null}
                   <p className="text-sm text-[var(--hl-muted)]">{fixture.venue}</p>
                 </article>
               ))}

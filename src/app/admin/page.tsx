@@ -4,16 +4,21 @@
   addHomeGoal,
   addMinute,
   createFixture,
+  createMediaAsset,
   createNewsPost,
   createPlayer,
+  createSeason,
   createTeam,
+  deleteMediaAsset,
   deleteMatch,
   deleteNewsPost,
   deletePlayer,
   deleteTeam,
   finishMatch,
   logoutAdmin,
+  transferPlayer,
   startLiveMatch,
+  setActiveSeason,
   updateAdminUserRole,
   updateMatchResult,
   updateNewsPost,
@@ -73,9 +78,31 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
 
   const { data: latestPlayers } = await supabase
     .from("players")
-    .select("id, full_name, shirt_number, position, created_at, team:teams!players_team_id_fkey(name)")
+    .select("id, team_id, first_name, last_name, shirt_number, position, created_at, team:teams!players_team_id_fkey(name)")
     .order("created_at", { ascending: false })
     .limit(20);
+
+  const { data: seasons } = await supabase
+    .from("seasons")
+    .select("id, name, start_date, end_date, is_active")
+    .order("created_at", { ascending: false })
+    .limit(30);
+
+  const activeSeasonId = seasons?.find((season) => season.is_active)?.id ?? null;
+
+  const { data: mediaAssets, error: mediaError } = await supabase
+    .from("media_assets")
+    .select("id, title, media_url, media_type, caption, created_at, season:seasons(name)")
+    .order("created_at", { ascending: false })
+    .limit(40);
+
+  const { data: transferHistory, error: transferHistoryError } = await supabase
+    .from("player_transfers")
+    .select(
+      "id, created_at, transfer_reason, actor_user_id, player:players!player_transfers_player_id_fkey(first_name, last_name), from_team:teams!player_transfers_from_team_id_fkey(name), to_team:teams!player_transfers_to_team_id_fkey(name)",
+    )
+    .order("created_at", { ascending: false })
+    .limit(30);
 
   const { data: adminUsers, error: adminUsersError } = await supabase
     .from("admin_users")
@@ -130,9 +157,11 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
 
       <nav className="flex flex-wrap gap-2">
         <Link href="/admin?section=live" className={tabClass("live")}>Live Control</Link>
+        <Link href="/admin?section=seasons" className={tabClass("seasons")}>Seasons</Link>
         <Link href="/admin?section=matches" className={tabClass("matches")}>Matches</Link>
         <Link href="/admin?section=teams-players" className={tabClass("teams-players")}>Teams & Players</Link>
         <Link href="/admin?section=news" className={tabClass("news")}>News</Link>
+        <Link href="/admin?section=media" className={tabClass("media")}>Media Center</Link>
         <Link href="/admin?section=access" className={tabClass("access")}>Access & Logs</Link>
       </nav>
 
@@ -153,7 +182,17 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-sm font-black text-[var(--hl-ink)]">{home} vs {away}</p>
                       <span className="rounded-full bg-[var(--hl-red)]/10 px-2 py-1 text-[10px] font-black uppercase tracking-[0.09em] text-[var(--hl-red)]">
-                        {match.status === "live" ? `LIVE ${minute}'` : match.status === "finished" ? "FT" : "Scheduled"}
+                        {match.status === "live"
+                          ? `LIVE ${minute}'`
+                          : match.status === "finished"
+                            ? "FT"
+                            : match.status === "postponed"
+                              ? "Postponed"
+                              : match.status === "cancelled"
+                                ? "Cancelled"
+                                : match.status === "abandoned"
+                                  ? "Abandoned"
+                                  : "Scheduled"}
                       </span>
                     </div>
                     <p className="brand-display mt-2 text-4xl text-[var(--hl-red)]">{homeScore} - {awayScore}</p>
@@ -169,6 +208,58 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
               })}
             </div>
           </article>
+        ) : null}
+
+        {activeSection === "seasons" ? (
+          <>
+            <article className="glass-card rounded-3xl border border-[var(--hl-red)]/20 p-6">
+              <h2 className="text-xl font-black text-[var(--hl-red)]">Create Season</h2>
+              <p className="mt-1 text-sm text-[var(--hl-muted)]">Set up a new competition season.</p>
+              <form action={createSeason} className="mt-4 space-y-3">
+                <label className="block text-sm font-semibold">Season Name
+                  <input name="name" required className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm" placeholder="UNAM Home League 2026/27" />
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block text-sm font-semibold">Start Date
+                    <input name="start_date" type="date" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm" />
+                  </label>
+                  <label className="block text-sm font-semibold">End Date
+                    <input name="end_date" type="date" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm" />
+                  </label>
+                </div>
+                <label className="flex items-center gap-2 text-sm font-semibold">
+                  <input name="make_active" type="checkbox" className="h-4 w-4" />
+                  Set as active season
+                </label>
+                <button type="submit" className="w-full rounded-full bg-[var(--hl-red)] px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white">Create Season</button>
+              </form>
+            </article>
+
+            <article className="glass-card rounded-3xl border border-[var(--hl-red)]/20 p-6">
+              <h2 className="text-xl font-black text-[var(--hl-red)]">Current Seasons</h2>
+              <p className="mt-1 text-sm text-[var(--hl-muted)]">Activate the season officials should operate on.</p>
+              <ul className="mt-4 space-y-3">
+                {seasons?.map((season) => (
+                  <li key={season.id} className="rounded-xl border border-[var(--hl-red)]/10 bg-white p-3">
+                    <p className="font-semibold text-[var(--hl-ink)]">{season.name}</p>
+                    <p className="text-xs text-[var(--hl-muted)]">
+                      {season.start_date ?? "No start"} - {season.end_date ?? "No end"}
+                    </p>
+                    <div className="mt-2 flex items-center gap-2">
+                      {season.is_active ? (
+                        <span className="rounded-full bg-green-100 px-3 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-green-700">Active</span>
+                      ) : (
+                        <form action={setActiveSeason}>
+                          <input type="hidden" name="season_id" value={season.id} />
+                          <button type="submit" className="rounded-full bg-[var(--hl-gold)] px-3 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-[var(--hl-red)]">Set Active</button>
+                        </form>
+                      )}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </article>
+          </>
         ) : null}
 
         {activeSection === "matches" ? (
@@ -193,8 +284,26 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                 <label className="block text-sm font-semibold">Venue<input name="venue" type="text" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" placeholder="UNAM Main Pitch" /></label>
                 <label className="block text-sm font-semibold">Status
                   <select name="status" defaultValue="scheduled" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]">
-                    <option value="scheduled">Scheduled</option><option value="live">Live</option><option value="finished">Finished</option>
+                    <option value="scheduled">Scheduled</option>
+                    <option value="live">Live</option>
+                    <option value="finished">Finished</option>
+                    <option value="postponed">Postponed</option>
+                    <option value="cancelled">Cancelled</option>
+                    <option value="abandoned">Abandoned</option>
                   </select>
+                </label>
+                <label className="block text-sm font-semibold">Season
+                  <select name="season_id" defaultValue={activeSeasonId ? String(activeSeasonId) : ""} className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]">
+                    <option value="">Active Season</option>
+                    {seasons?.map((season) => (
+                      <option key={`season-create-${season.id}`} value={season.id}>
+                        {season.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block text-sm font-semibold">Status Note (optional)
+                  <input name="status_note" type="text" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" placeholder="Reason for postponement/cancellation" />
                 </label>
                 <div className="grid grid-cols-3 gap-3">
                   <label className="block text-sm font-semibold">Home Score<input name="home_score" type="number" min="0" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" /></label>
@@ -222,8 +331,16 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                 </label>
                 <label className="block text-sm font-semibold">Status
                   <select name="status" defaultValue="scheduled" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]">
-                    <option value="scheduled">Scheduled</option><option value="live">Live</option><option value="finished">Finished</option>
+                    <option value="scheduled">Scheduled</option>
+                    <option value="live">Live</option>
+                    <option value="finished">Finished</option>
+                    <option value="postponed">Postponed</option>
+                    <option value="cancelled">Cancelled</option>
+                    <option value="abandoned">Abandoned</option>
                   </select>
+                </label>
+                <label className="block text-sm font-semibold">Status Note (optional)
+                  <input name="status_note" type="text" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" placeholder="Reason for status change" />
                 </label>
                 <div className="grid grid-cols-3 gap-3">
                   <label className="block text-sm font-semibold">Home Score<input name="home_score" type="number" min="0" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" /></label>
@@ -317,7 +434,10 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                     <option value="">Select team</option>{teams?.map((team) => (<option key={team.id} value={team.id}>{team.name}{team.short_name ? ` (${team.short_name})` : ""}</option>))}
                   </select>
                 </label>
-                <label className="block text-sm font-semibold">Full Name<input name="full_name" type="text" required className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" placeholder="John Doe" /></label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block text-sm font-semibold">First Name<input name="first_name" type="text" required className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" placeholder="John" /></label>
+                  <label className="block text-sm font-semibold">Last Name<input name="last_name" type="text" required className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" placeholder="Doe" /></label>
+                </div>
                 <div className="grid grid-cols-2 gap-3">
                   <label className="block text-sm font-semibold">Shirt No.<input name="shirt_number" type="number" min="1" max="99" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" /></label>
                   <label className="block text-sm font-semibold">Position<input name="position" type="text" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" placeholder="Forward" /></label>
@@ -338,16 +458,140 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                       <li key={player.id} className="rounded-lg border border-[var(--hl-red)]/10 bg-white px-3 py-2">
                         <div className="flex items-center justify-between gap-3">
                           <div>
-                            <p className="font-semibold text-[var(--hl-ink)]">{player.full_name}</p>
+                            <p className="font-semibold text-[var(--hl-ink)]">{player.first_name} {player.last_name}</p>
                             <p className="text-xs text-[var(--hl-muted)]">{teamName}</p>
                           </div>
-                          <form action={deletePlayer}><input type="hidden" name="player_id" value={player.id} /><button type="submit" className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-red-700">Delete</button></form>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <form action={transferPlayer} className="flex items-center gap-2">
+                              <input type="hidden" name="player_id" value={player.id} />
+                              <select
+                                name="to_team_id"
+                                defaultValue={String(player.team_id)}
+                                className="rounded-lg border border-[var(--hl-red)]/20 px-2 py-1 text-xs"
+                              >
+                                {teams?.map((team) => (
+                                  <option key={`transfer-${player.id}-${team.id}`} value={team.id}>
+                                    {team.name}
+                                  </option>
+                                ))}
+                              </select>
+                              <input
+                                name="transfer_reason"
+                                type="text"
+                                className="w-36 rounded-lg border border-[var(--hl-red)]/20 px-2 py-1 text-xs"
+                                placeholder="Why (optional)"
+                              />
+                              <button type="submit" className="rounded-full bg-[var(--hl-red)] px-3 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-white">Transfer</button>
+                            </form>
+                            <form action={deletePlayer}><input type="hidden" name="player_id" value={player.id} /><button type="submit" className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-red-700">Delete</button></form>
+                          </div>
                         </div>
                       </li>
                     );
                   })}
                 </ul>
               </div>
+
+              {!transferHistoryError ? (
+                <div className="mt-6 border-t border-[var(--hl-red)]/10 pt-4">
+                  <p className="text-xs font-bold uppercase tracking-[0.08em] text-[var(--hl-muted)]">Transfer History</p>
+                  <ul className="mt-2 space-y-2 text-sm">
+                    {transferHistory?.map((entry) => {
+                      const playerRelation = entry.player as
+                        | { first_name?: string; last_name?: string }
+                        | { first_name?: string; last_name?: string }[]
+                        | null;
+                      const fromRelation = entry.from_team as { name?: string } | { name?: string }[] | null;
+                      const toRelation = entry.to_team as { name?: string } | { name?: string }[] | null;
+                      const player = Array.isArray(playerRelation) ? playerRelation[0] : playerRelation;
+                      const playerName = [player?.first_name ?? "", player?.last_name ?? ""].join(" ").trim() || "Unknown Player";
+                      const fromTeam = getTeamName(fromRelation);
+                      const toTeam = getTeamName(toRelation);
+
+                      return (
+                        <li key={entry.id} className="rounded-lg border border-[var(--hl-red)]/10 bg-white px-3 py-2">
+                          <p className="font-semibold text-[var(--hl-ink)]">{playerName}: {fromTeam} to {toTeam}</p>
+                          {entry.transfer_reason ? (
+                            <p className="text-xs text-[var(--hl-muted)]">Why: {entry.transfer_reason}</p>
+                          ) : null}
+                          <p className="text-xs text-[var(--hl-muted)]">{new Date(entry.created_at).toLocaleString("en-GB")}</p>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ) : null}
+            </article>
+          </>
+        ) : null}
+
+        {activeSection === "media" ? (
+          <>
+            <article className="glass-card rounded-3xl border border-[var(--hl-red)]/20 p-6">
+              <h2 className="text-xl font-black text-[var(--hl-red)]">Add Media Asset</h2>
+              <p className="mt-1 text-sm text-[var(--hl-muted)]">Store official links for photos, videos, and documents.</p>
+              <form action={createMediaAsset} className="mt-4 space-y-3">
+                <label className="block text-sm font-semibold">Title
+                  <input name="title" required className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm" placeholder="Matchday 4 Team Photo" />
+                </label>
+                <label className="block text-sm font-semibold">Media URL
+                  <input name="media_url" type="url" required className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm" placeholder="https://..." />
+                </label>
+                <div className="grid grid-cols-2 gap-3">
+                  <label className="block text-sm font-semibold">Type
+                    <select name="media_type" defaultValue="image" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm">
+                      <option value="image">Image</option>
+                      <option value="video">Video</option>
+                      <option value="document">Document</option>
+                      <option value="link">Link</option>
+                    </select>
+                  </label>
+                  <label className="block text-sm font-semibold">Season
+                    <select name="season_id" defaultValue={activeSeasonId ? String(activeSeasonId) : ""} className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm">
+                      <option value="">Active Season</option>
+                      {seasons?.map((season) => (
+                        <option key={`media-season-${season.id}`} value={season.id}>
+                          {season.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <label className="block text-sm font-semibold">Caption (optional)
+                  <textarea name="caption" rows={3} className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm" placeholder="Short description for officials and media team." />
+                </label>
+                <button type="submit" className="w-full rounded-full bg-[var(--hl-red)] px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white">Save Media</button>
+              </form>
+            </article>
+
+            <article className="glass-card rounded-3xl border border-[var(--hl-red)]/20 p-6">
+              <h2 className="text-xl font-black text-[var(--hl-red)]">Media Library</h2>
+              <p className="mt-1 text-sm text-[var(--hl-muted)]">Latest uploaded media references.</p>
+              {mediaError ? (
+                <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Media Center will appear after running `supabase/season-fixture-media.sql`.</p>
+              ) : null}
+              <ul className="mt-4 space-y-3">
+                {mediaAssets?.map((item) => {
+                  const seasonRelation = item.season as { name?: string } | { name?: string }[] | null;
+                  const seasonName = getTeamName(seasonRelation);
+                  return (
+                    <li key={item.id} className="rounded-xl border border-[var(--hl-red)]/10 bg-white p-3">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-[var(--hl-ink)]">{item.title}</p>
+                          <p className="text-xs text-[var(--hl-muted)] uppercase">{item.media_type} · {seasonName}</p>
+                          <a href={item.media_url} target="_blank" rel="noreferrer" className="text-xs font-semibold text-[var(--hl-red)] underline">{item.media_url}</a>
+                          {item.caption ? <p className="mt-1 text-xs text-[var(--hl-muted)]">{item.caption}</p> : null}
+                        </div>
+                        <form action={deleteMediaAsset}>
+                          <input type="hidden" name="media_id" value={item.id} />
+                          <button type="submit" className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-red-700">Delete</button>
+                        </form>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
             </article>
           </>
         ) : null}

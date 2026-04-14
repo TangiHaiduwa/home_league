@@ -8,11 +8,12 @@ create table if not exists public.teams (
 create table if not exists public.players (
   id bigint generated always as identity primary key,
   team_id bigint not null references public.teams(id) on delete cascade,
-  full_name text not null,
+  first_name text not null,
+  last_name text not null,
   shirt_number integer,
   position text,
   created_at timestamptz not null default now(),
-  unique (team_id, full_name)
+  unique (team_id, first_name, last_name)
 );
 
 create table if not exists public.matches (
@@ -141,18 +142,18 @@ values
   ('Medical Stars', 'MED')
 on conflict (name) do update set short_name = excluded.short_name;
 
-insert into public.players (team_id, full_name, shirt_number, position)
-select t.id, p.full_name, p.shirt_number, p.position
+insert into public.players (team_id, first_name, last_name, shirt_number, position)
+select t.id, p.first_name, p.last_name, p.shirt_number, p.position
 from (
   values
-    ('Engineering FC', 'David Shikongo', 9, 'Forward'),
-    ('Law Legends', 'Elifas Tomas', 10, 'Forward'),
-    ('Commerce United', 'Michael !Garoeb', 11, 'Winger'),
-    ('Science Rovers', 'Petrus Uutoni', 7, 'Striker'),
-    ('Medical Stars', 'Tuhafeni Kamati', 17, 'Forward')
-) as p(team_name, full_name, shirt_number, position)
+    ('Engineering FC', 'David', 'Shikongo', 9, 'Forward'),
+    ('Law Legends', 'Elifas', 'Tomas', 10, 'Forward'),
+    ('Commerce United', 'Michael', '!Garoeb', 11, 'Winger'),
+    ('Science Rovers', 'Petrus', 'Uutoni', 7, 'Striker'),
+    ('Medical Stars', 'Tuhafeni', 'Kamati', 17, 'Forward')
+) as p(team_name, first_name, last_name, shirt_number, position)
 join public.teams t on t.name = p.team_name
-on conflict (team_id, full_name) do update set
+on conflict (team_id, first_name, last_name) do update set
   shirt_number = excluded.shirt_number,
   position = excluded.position;
 
@@ -174,14 +175,14 @@ insert into public.player_stats (player_id, goals, assists)
 select p.id, s.goals, s.assists
 from (
   values
-    ('David Shikongo', 'Engineering FC', 8, 2),
-    ('Elifas Tomas', 'Law Legends', 7, 1),
-    ('Michael !Garoeb', 'Commerce United', 6, 4),
-    ('Petrus Uutoni', 'Science Rovers', 5, 2),
-    ('Tuhafeni Kamati', 'Medical Stars', 5, 1)
-) as s(player_name, team_name, goals, assists)
+    ('David', 'Shikongo', 'Engineering FC', 8, 2),
+    ('Elifas', 'Tomas', 'Law Legends', 7, 1),
+    ('Michael', '!Garoeb', 'Commerce United', 6, 4),
+    ('Petrus', 'Uutoni', 'Science Rovers', 5, 2),
+    ('Tuhafeni', 'Kamati', 'Medical Stars', 5, 1)
+) as s(first_name, last_name, team_name, goals, assists)
 join public.teams t on t.name = s.team_name
-join public.players p on p.team_id = t.id and p.full_name = s.player_name
+join public.players p on p.team_id = t.id and p.first_name = s.first_name and p.last_name = s.last_name
 on conflict (player_id) do update set
   goals = excluded.goals,
   assists = excluded.assists;

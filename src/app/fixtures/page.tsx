@@ -9,6 +9,15 @@ export default async function FixturesPage() {
     console.warn("UNAM Home League: using fallback fixtures data.");
   }
 
+  const getStatusLabel = (status: string, liveMinute: number | null) => {
+    if (status === "live") return `LIVE ${liveMinute ?? 0}'`;
+    if (status === "finished") return "FT";
+    if (status === "postponed") return "Postponed";
+    if (status === "cancelled") return "Cancelled";
+    if (status === "abandoned") return "Abandoned";
+    return "Scheduled";
+  };
+
   return (
     <div className="relative flex-1 overflow-x-hidden text-[var(--hl-ink)]">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_0%_0%,rgba(201,154,46,0.25),transparent_45%)]" />
@@ -27,7 +36,7 @@ export default async function FixturesPage() {
               <div className="flex items-center justify-between gap-3">
                 <p className="text-xs font-bold uppercase tracking-[0.11em] text-[var(--hl-muted)]">{fixture.date}</p>
                 <span className="rounded-full bg-[var(--hl-red)]/10 px-2 py-1 text-[10px] font-black uppercase tracking-[0.09em] text-[var(--hl-red)]">
-                  {fixture.status === "live" ? `LIVE ${fixture.liveMinute ?? 0}'` : fixture.status === "finished" ? "FT" : "Scheduled"}
+                  {getStatusLabel(fixture.status, fixture.liveMinute)}
                 </span>
               </div>
               <div className="mt-3 grid grid-cols-[1fr_auto_1fr] items-center gap-3">
@@ -46,6 +55,7 @@ export default async function FixturesPage() {
                   {fixture.homeScore} - {fixture.awayScore}
                 </p>
               ) : null}
+              {fixture.statusNote ? <p className="mt-1 text-xs text-[var(--hl-muted)]">{fixture.statusNote}</p> : null}
               <p className="mt-2 text-sm text-[var(--hl-muted)]">{fixture.venue}</p>
             </article>
           ))}
