@@ -61,6 +61,7 @@ function revalidateLeagueViews() {
   revalidatePath("/fixtures");
   revalidatePath("/table");
   revalidatePath("/teams");
+  revalidatePath("/teams/[slug]", "page");
   revalidatePath("/scorers");
   revalidatePath("/news");
   revalidatePath("/admin");
@@ -253,18 +254,26 @@ export async function createNewsPost(formData: FormData) {
 
   const title = String(formData.get("title") ?? "").trim();
   const snippet = String(formData.get("snippet") ?? "").trim();
+  const imageUrlRaw = String(formData.get("image_url") ?? "").trim();
 
   if (!title || !snippet) {
     redirect("/admin?section=news&error=Title and snippet are required");
   }
 
-  const { data, error } = await supabase.from("news").insert({ title, snippet }).select("id").single();
+  const { data, error } = await supabase
+    .from("news")
+    .insert({ title, snippet, image_url: imageUrlRaw || null })
+    .select("id")
+    .single();
 
   if (error) {
     redirect(`/admin?section=news&error=${encodeURIComponent(error.message)}`);
   }
 
-  await logAdminEvent(supabase, user.id, "create", "news", String(data?.id ?? ""), { title });
+  await logAdminEvent(supabase, user.id, "create", "news", String(data?.id ?? ""), {
+    title,
+    imageUrl: imageUrlRaw || null,
+  });
 
   revalidatePath("/");
   revalidatePath("/news");
@@ -278,6 +287,7 @@ export async function updateNewsPost(formData: FormData) {
   const newsId = Number(formData.get("news_id"));
   const title = String(formData.get("title") ?? "").trim();
   const snippet = String(formData.get("snippet") ?? "").trim();
+  const imageUrlRaw = String(formData.get("image_url") ?? "").trim();
 
   if (!Number.isFinite(newsId)) {
     redirect("/admin?section=news&error=Invalid news item");
@@ -288,14 +298,17 @@ export async function updateNewsPost(formData: FormData) {
 
   const { error } = await supabase
     .from("news")
-    .update({ title, snippet })
+    .update({ title, snippet, image_url: imageUrlRaw || null })
     .eq("id", newsId);
 
   if (error) {
     redirect(`/admin?section=news&error=${encodeURIComponent(error.message)}`);
   }
 
-  await logAdminEvent(supabase, user.id, "update", "news", String(newsId), { title });
+  await logAdminEvent(supabase, user.id, "update", "news", String(newsId), {
+    title,
+    imageUrl: imageUrlRaw || null,
+  });
 
   revalidatePath("/");
   revalidatePath("/news");
@@ -329,22 +342,34 @@ export async function createTeam(formData: FormData) {
 
   const name = String(formData.get("name") ?? "").trim();
   const shortNameRaw = String(formData.get("short_name") ?? "").trim();
+  const profileRaw = String(formData.get("profile") ?? "").trim();
+  const crestUrlRaw = String(formData.get("crest_url") ?? "").trim();
+  const teamPhotoUrlRaw = String(formData.get("team_photo_url") ?? "").trim();
 
   if (!name) {
     redirect("/admin?section=teams-players&error=Team name is required");
   }
 
   const short_name = shortNameRaw === "" ? null : shortNameRaw.toUpperCase();
+  const profile = profileRaw === "" ? null : profileRaw;
+  const crest_url = crestUrlRaw === "" ? null : crestUrlRaw;
+  const team_photo_url = teamPhotoUrlRaw === "" ? null : teamPhotoUrlRaw;
 
   const { error } = await supabase
     .from("teams")
-    .upsert({ name, short_name }, { onConflict: "name" });
+    .upsert({ name, short_name, profile, crest_url, team_photo_url }, { onConflict: "name" });
 
   if (error) {
     redirect(`/admin?section=teams-players&error=${encodeURIComponent(error.message)}`);
   }
 
-  await logAdminEvent(supabase, user.id, "upsert", "team", undefined, { name, short_name });
+  await logAdminEvent(supabase, user.id, "upsert", "team", undefined, {
+    name,
+    short_name,
+    hasProfile: Boolean(profile),
+    hasCrest: Boolean(crest_url),
+    hasTeamPhoto: Boolean(team_photo_url),
+  });
 
   revalidateLeagueViews();
   redirect("/admin?section=teams-players&success=Team saved");

@@ -2,6 +2,9 @@ create table if not exists public.teams (
   id bigint generated always as identity primary key,
   name text not null unique,
   short_name text,
+  profile text,
+  crest_url text,
+  team_photo_url text,
   created_at timestamptz not null default now()
 );
 
@@ -35,6 +38,8 @@ create table if not exists public.league_standings (
   team_id bigint not null unique references public.teams(id) on delete cascade,
   played integer not null default 0,
   points integer not null default 0,
+  goals_for integer not null default 0,
+  goals_against integer not null default 0,
   goal_difference integer not null default 0,
   created_at timestamptz not null default now()
 );
@@ -51,6 +56,7 @@ create table if not exists public.news (
   id bigint generated always as identity primary key,
   title text not null,
   snippet text not null,
+  image_url text,
   created_at timestamptz not null default now()
 );
 
@@ -61,7 +67,7 @@ as $$
 begin
   delete from public.league_standings;
 
-  insert into public.league_standings (team_id, played, points, goal_difference)
+  insert into public.league_standings (team_id, played, points, goals_for, goals_against, goal_difference)
   with played_matches as (
     select home_team_id, away_team_id, home_score, away_score
     from public.matches
@@ -76,6 +82,8 @@ begin
       (
         3 * count(*) filter (where (pm.home_team_id = t.id and pm.home_score > pm.away_score) or (pm.away_team_id = t.id and pm.away_score > pm.home_score))
       ) + count(*) filter (where pm.home_score = pm.away_score and (pm.home_team_id = t.id or pm.away_team_id = t.id)) as points,
+      coalesce(sum(case when pm.home_team_id = t.id then pm.home_score when pm.away_team_id = t.id then pm.away_score end), 0) as goals_for,
+      coalesce(sum(case when pm.home_team_id = t.id then pm.away_score when pm.away_team_id = t.id then pm.home_score end), 0) as goals_against,
       (
         coalesce(sum(case when pm.home_team_id = t.id then pm.home_score when pm.away_team_id = t.id then pm.away_score end), 0)
         -
@@ -85,7 +93,7 @@ begin
     left join played_matches pm on pm.home_team_id = t.id or pm.away_team_id = t.id
     group by t.id
   )
-  select team_id, played, points, goal_difference
+  select team_id, played, points, goals_for, goals_against, goal_difference
   from team_totals;
 end;
 $$;
@@ -132,15 +140,17 @@ create policy "Public read player stats" on public.player_stats for select using
 drop policy if exists "Public read news" on public.news;
 create policy "Public read news" on public.news for select using (true);
 
-insert into public.teams (name, short_name)
+insert into public.teams (name, short_name, profile)
 values
-  ('Engineering FC', 'ENG'),
-  ('Law Legends', 'LAW'),
-  ('Commerce United', 'COM'),
-  ('Education XI', 'EDU'),
-  ('Science Rovers', 'SCI'),
-  ('Medical Stars', 'MED')
-on conflict (name) do update set short_name = excluded.short_name;
+  ('Engineering FC', 'ENG', 'Engineering FC blend structure and vertical running, often turning quick transitions into early pressure in the final third.'),
+  ('Law Legends', 'LAW', 'Law Legends are aggressive out of possession and love direct service into the box, making them dangerous whenever the game opens up.'),
+  ('Commerce United', 'COM', 'Commerce United are a balanced side that keep the ball moving and rely on wide overloads to create chances across the front line.'),
+  ('Education XI', 'EDU', 'Education XI are still searching for consistency, but their young squad keeps competing and creates enough chances to threaten every week.'),
+  ('Science Rovers', 'SCI', 'Science Rovers trust sharp combinations through midfield and have enough pace up top to punish tired legs late in matches.'),
+  ('Medical Stars', 'MED', 'Medical Stars are compact and disciplined, usually building their points through patience and moments of quality in the final pass.')
+on conflict (name) do update set
+  short_name = excluded.short_name,
+  profile = excluded.profile;
 
 insert into public.players (team_id, first_name, last_name, shirt_number, position)
 select t.id, p.first_name, p.last_name, p.shirt_number, p.position
@@ -187,11 +197,11 @@ on conflict (player_id) do update set
   goals = excluded.goals,
   assists = excluded.assists;
 
-insert into public.news (title, snippet)
+insert into public.news (title, snippet, image_url)
 select * from (
   values
-    ('Season Kicks Off With Record Attendance', 'More than 1,200 students attended opening weekend across two matchdays.'),
-    ('Top Scorer Race Heating Up', 'Three players are tied on 5 goals after Matchweek 3, setting up a tight chase.'),
-    ('Referee Development Program Launched', 'UNAM introduces student officiating workshops to strengthen match standards.')
-) as v(title, snippet)
+    ('Season Kicks Off With Record Attendance', 'More than 1,200 students attended opening weekend across two matchdays.', null),
+    ('Top Scorer Race Heating Up', 'Three players are tied on 5 goals after Matchweek 3, setting up a tight chase.', null),
+    ('Referee Development Program Launched', 'UNAM introduces student officiating workshops to strengthen match standards.', null)
+) as v(title, snippet, image_url)
 where not exists (select 1 from public.news);

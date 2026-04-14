@@ -66,13 +66,13 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
 
   const { data: latestNews } = await supabase
     .from("news")
-    .select("id, title, snippet, created_at")
+    .select("*")
     .order("created_at", { ascending: false })
     .limit(20);
 
   const { data: teams } = await supabase
     .from("teams")
-    .select("id, name, short_name")
+    .select("*")
     .order("name", { ascending: true })
     .limit(100);
 
@@ -370,10 +370,11 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
         {activeSection === "news" ? (
           <article className="glass-card rounded-3xl border border-[var(--hl-red)]/20 p-6 md:col-span-2">
             <h2 className="text-xl font-black text-[var(--hl-red)]">Publish News</h2>
-            <p className="mt-1 text-sm text-[var(--hl-muted)]">Create and edit official league announcements.</p>
+            <p className="mt-1 text-sm text-[var(--hl-muted)]">Create and edit official league announcements with article imagery.</p>
             <form action={createNewsPost} className="mt-4 space-y-3">
               <label className="block text-sm font-semibold">Headline<input name="title" type="text" required className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" placeholder="Matchweek 4 kicks off this Friday" /></label>
               <label className="block text-sm font-semibold">Summary<textarea name="snippet" rows={4} required className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" placeholder="Keep this short and informative for homepage cards." /></label>
+              <label className="block text-sm font-semibold">Image URL (optional)<input name="image_url" type="url" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" placeholder="https://..." /></label>
               <button type="submit" className="w-full rounded-full bg-[var(--hl-gold)] px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-[var(--hl-red)] transition hover:bg-[#ddb251]">Publish News</button>
             </form>
 
@@ -385,6 +386,7 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                     <form action={updateNewsPost} className="space-y-2">
                       <input type="hidden" name="news_id" value={item.id} />
                       <input name="title" defaultValue={item.title} required className="w-full rounded-lg border border-[var(--hl-red)]/20 px-3 py-2 text-sm" />
+                      <input name="image_url" type="url" defaultValue={(item as { image_url?: string | null }).image_url ?? ""} className="w-full rounded-lg border border-[var(--hl-red)]/20 px-3 py-2 text-sm" placeholder="https://..." />
                       <textarea name="snippet" defaultValue={item.snippet} rows={3} required className="w-full rounded-lg border border-[var(--hl-red)]/20 px-3 py-2 text-sm" />
                       <button type="submit" className="rounded-full bg-[var(--hl-red)] px-3 py-2 text-xs font-black uppercase tracking-[0.08em] text-white">Save</button>
                     </form>
@@ -403,10 +405,13 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
           <>
             <article className="glass-card rounded-3xl border border-[var(--hl-red)]/20 p-6">
               <h2 className="text-xl font-black text-[var(--hl-red)]">Create Team</h2>
-              <p className="mt-1 text-sm text-[var(--hl-muted)]">Add a new team or update short code by name.</p>
+              <p className="mt-1 text-sm text-[var(--hl-muted)]">Add a new team or update its profile, crest, and banner image.</p>
               <form action={createTeam} className="mt-4 space-y-3">
                 <label className="block text-sm font-semibold">Team Name<input name="name" type="text" required className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" placeholder="Architecture United" /></label>
                 <label className="block text-sm font-semibold">Short Name (optional)<input name="short_name" type="text" maxLength={6} className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm uppercase outline-none focus:border-[var(--hl-red)]" placeholder="ARC" /></label>
+                <label className="block text-sm font-semibold">Club Profile (optional)<textarea name="profile" rows={4} className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" placeholder="Short description for the club profile page." /></label>
+                <label className="block text-sm font-semibold">Crest URL (optional)<input name="crest_url" type="url" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" placeholder="https://..." /></label>
+                <label className="block text-sm font-semibold">Team Photo URL (optional)<input name="team_photo_url" type="url" className="mt-1 w-full rounded-xl border border-[var(--hl-red)]/20 bg-white px-3 py-2 text-sm outline-none focus:border-[var(--hl-red)]" placeholder="https://..." /></label>
                 <button type="submit" className="w-full rounded-full bg-[var(--hl-red)] px-4 py-3 text-sm font-black uppercase tracking-[0.08em] text-white transition hover:bg-[var(--hl-red-dark)]">Save Team</button>
               </form>
 
@@ -416,7 +421,10 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
                   {teams?.map((team) => (
                     <li key={team.id} className="rounded-lg border border-[var(--hl-red)]/10 bg-white px-3 py-2">
                       <div className="flex items-center justify-between gap-3">
-                        <p className="font-semibold text-[var(--hl-ink)]">{team.name}{team.short_name ? ` (${team.short_name})` : ""}</p>
+                        <div>
+                          <p className="font-semibold text-[var(--hl-ink)]">{team.name}{team.short_name ? ` (${team.short_name})` : ""}</p>
+                          <p className="text-xs text-[var(--hl-muted)]">{(team as { profile?: string | null }).profile ? "Profile ready" : "Profile not added yet"}</p>
+                        </div>
                         <form action={deleteTeam}><input type="hidden" name="team_id" value={team.id} /><button type="submit" className="rounded-full border border-red-200 bg-red-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.08em] text-red-700">Delete</button></form>
                       </div>
                     </li>

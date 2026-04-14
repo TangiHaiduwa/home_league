@@ -1,5 +1,6 @@
 type ClubCrestProps = {
   teamName: string;
+  imageUrl?: string | null;
   size?: "sm" | "md" | "lg";
 };
 
@@ -18,7 +19,7 @@ function getHue(teamName: string) {
   return value;
 }
 
-export function ClubCrest({ teamName, size = "md" }: ClubCrestProps) {
+export function ClubCrest({ teamName, imageUrl, size = "md" }: ClubCrestProps) {
   const initials = getInitials(teamName);
   const hue = getHue(teamName);
   const sizeClass = size === "sm" ? "h-8 w-8 text-[10px]" : size === "lg" ? "h-14 w-14 text-base" : "h-10 w-10 text-xs";
@@ -26,11 +27,20 @@ export function ClubCrest({ teamName, size = "md" }: ClubCrestProps) {
   return (
     <div
       className={`${sizeClass} inline-flex items-center justify-center rounded-full border border-white/60 font-black tracking-[0.08em] text-white shadow-[inset_0_0_0_2px_rgba(255,255,255,0.25)]`}
-      style={{ background: `linear-gradient(135deg, hsl(${hue} 70% 45%), hsl(${(hue + 65) % 360} 74% 32%))` }}
+      style={
+        imageUrl
+          ? {
+              backgroundImage: `url("${imageUrl}")`,
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+              backgroundColor: "white",
+            }
+          : { background: `linear-gradient(135deg, hsl(${hue} 70% 45%), hsl(${(hue + 65) % 360} 74% 32%))` }
+      }
       aria-label={`${teamName} crest`}
       title={teamName}
     >
-      {initials}
+      {imageUrl ? <span className="sr-only">{teamName}</span> : initials}
     </div>
   );
 }
